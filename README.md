@@ -1,1 +1,1 @@
-# agent-buddy-client
+# React Electron
