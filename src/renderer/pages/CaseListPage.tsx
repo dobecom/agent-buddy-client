@@ -1,6 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { Cases } from '../domains/Cases';
-import { CaseAttaches } from '../domains/CaseAttaches';
 import { CaseStatements } from '../domains/CaseStatements';
 import { CaseResolutions } from '../domains/CaseResolutions';
 import { CaseStatus, SupportCase } from '../domains/SupportCase';
@@ -9,80 +7,15 @@ import { CaseCreateView } from '../components/case/CaseCreateView';
 import { CaseDetailView } from '../components/case/CaseDetailView';
 import { AddStatementModal } from '../components/case/AddStatementModal';
 import { AddResolutionModal } from '../components/case/AddResolutionModal';
+import {
+  registerCase,
+  getCaseList,
+  getCaseView,
+  RegisterCaseRequest,
+} from '../services/caseService';
+import { ApiClientError } from '../services/apiClient';
 
 type ViewMode = 'list' | 'create' | 'detail';
-
-// TODO: Replace mock data and loaders with real database integration (e.g., via Electron IPC)
-const mockCases: SupportCase[] = [
-  (() => {
-    const base = new Cases();
-    base.id = '1';
-    base.number = '202512180000001';
-    base.title = 'Login 실패 오류';
-    base.productFamily = '';
-    base.productName = 'Agent Buddy Client';
-    base.productVersion = null;
-    base.category = 'Authentication';
-    base.subCategory = null;
-    base.status = 'OPEN';
-    base.createdAt = new Date().toISOString();
-    base.updatedAt = new Date().toISOString();
-    base.createdBy = null;
-    base.updatedBy = null;
-
-    const attach = new CaseAttaches();
-    attach.id = 'att-1';
-    attach.url = '#';
-    attach.path = '';
-    attach.name = 'error-log.txt';
-    attach.original = 'error-log.txt';
-    attach.memo = null;
-    attach.status = 'WAIT';
-    attach.createdAt = new Date().toISOString();
-    attach.updatedAt = new Date().toISOString();
-    attach.createdBy = null;
-    attach.updatedBy = null;
-    attach.caseId = 1;
-    attach.type = 0;
-
-    const st = new CaseStatements();
-    st.id = 'st-1';
-    st.caseId = base.id;
-    st.symptom = '사용자가 로그인 시도 시 500 에러 발생';
-    st.needs = '원인 분석 및 빠른 해결';
-    st.environments = JSON.stringify({
-      os: 'Windows 11',
-      version: '1.0.0',
-    });
-    st.createdAt = new Date().toISOString();
-    st.updatedAt = new Date().toISOString();
-    st.createdBy = null;
-    st.updatedBy = null;
-
-    const rs = new CaseResolutions();
-    rs.id = 'rs-1';
-    rs.caseId = base.id;
-    rs.content = JSON.stringify({
-      steps: ['로그 분석', 'DB 연결 상태 점검'],
-    });
-    rs.createdAt = new Date().toISOString();
-    rs.updatedAt = new Date().toISOString();
-    rs.createdBy = null;
-    rs.updatedBy = null;
-
-    return {
-      base,
-      attachments: [attach],
-      statements: [st],
-      resolutions: [rs],
-    } as SupportCase;
-  })(),
-];
-
-const loadCasesFromDb = async (): Promise<SupportCase[]> => {
-  // TODO: 실제 DB 또는 Electron IPC 호출로 교체
-  return Promise.resolve(mockCases);
-};
 
 const CaseListPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -91,15 +24,35 @@ const CaseListPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<CaseStatus | 'ALL'>('ALL');
   const [statementModalOpen, setStatementModalOpen] = useState(false);
   const [resolutionModalOpen, setResolutionModalOpen] = useState(false);
+  const [loading, setLoading] = useState(true); // 초기 로딩 상태
+  const [error, setError] = useState<string | null>(null);
 
   // Create form state
   const [newCaseNumber, setNewCaseNumber] = useState('');
   const [newCustomerStatement, setNewCustomerStatement] = useState('');
 
+  // 케이스 리스트 로드
   useEffect(() => {
     const load = async () => {
-      const data = await loadCasesFromDb();
-      setCases(data);
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await getCaseList(1); // 첫 페이지
+        console.log(result);
+        setCases(result.cases);
+      } catch (err) {
+        // 에러가 발생해도 페이지는 정상적으로 렌더링되도록 처리
+        const message =
+          err instanceof ApiClientError
+            ? err.message
+            : '케이스 리스트를 불러오는데 실패했습니다.';
+        setError(message);
+        console.error('Failed to load cases:', err);
+        // 에러 발생 시 빈 배열로 설정하여 페이지가 정상적으로 렌더링되도록 함
+        setCases([]);
+      } finally {
+        setLoading(false);
+      }
     };
     load();
   }, []);
@@ -110,7 +63,7 @@ const CaseListPage: React.FC = () => {
     setViewMode('create');
   };
 
-  const handleSaveCase = () => {
+  const handleSaveCase = async () => {
     // 간단한 유효성 검사
     if (!/^\d{1,20}$/.test(newCaseNumber)) {
       alert('Case Number는 숫자만 가능하며 1~20자리여야 합니다.');
@@ -122,47 +75,67 @@ const CaseListPage: React.FC = () => {
       return;
     }
 
-    // TODO: 실제 DB 저장 로직으로 교체
-    const base = new Cases();
-    base.id = String(Date.now());
-    base.number = newCaseNumber;
-    base.title = newCustomerStatement.slice(0, 40) + '...';
-    base.productFamily = '';
-    base.productName = 'Unknown';
-    base.productVersion = null;
-    base.category = 'Uncategorized';
-    base.subCategory = null;
-    base.status = 'OPEN';
-    base.createdAt = new Date().toISOString();
-    base.updatedAt = new Date().toISOString();
-    base.createdBy = null;
-    base.updatedBy = null;
+    setLoading(true);
+    setError(null);
 
-    const st = new CaseStatements();
-    st.id = 'cs-' + Date.now();
-    st.caseId = base.id;
-    st.symptom = newCustomerStatement;
-    st.needs = '';
-    st.environments = JSON.stringify({});
-    st.createdAt = new Date().toISOString();
-    st.updatedAt = new Date().toISOString();
-    st.createdBy = null;
-    st.updatedBy = null;
+    try {
+      
+const request: RegisterCaseRequest = {
+  cases: {
+    number: newCaseNumber,
+    title: newCustomerStatement.slice(0, 40) + '...',
+    productFamily: 'Unknown',
+    productName: 'Unknown',
+    category: 'Uncategorized',
+  },
+  caseStatements: {
+    symptom: newCustomerStatement,
+    needs: '',
+    environments: {},
+  },
+};
 
-    const created: SupportCase = {
-      base,
-      attachments: [],
-      statements: [st],
-      resolutions: [],
-    };
+    
+      const caseId = await registerCase(request);
 
-    setCases((prev) => [created, ...prev]);
-    setViewMode('list');
+      console.log('Case created with ID:', caseId);
+      // 생성 성공 후 리스트를 다시 불러옴
+      const result = await getCaseList(1);
+      setCases(result.cases);
+      setViewMode('list');
+      setNewCaseNumber('');
+      setNewCustomerStatement('');
+    } catch (err) {
+      const message =
+        err instanceof ApiClientError
+          ? err.message
+          : '케이스 생성에 실패했습니다.';
+      setError(message);
+      console.error('Failed to create case:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleCaseClick = (item: SupportCase) => {
-    setSelectedCase(item);
-    setViewMode('detail');
+  const handleCaseClick = async (item: SupportCase) => {
+    setLoading(true);
+    setError(null);
+    try {
+      // 상세 정보 조회 (statements, resolutions 포함)
+      const detail = await getCaseView(item.base.id);
+      setSelectedCase(detail);
+      setViewMode('detail');
+    } catch (err) {
+      const message =
+        err instanceof ApiClientError
+          ? err.message
+          : '케이스 상세 정보를 불러오는데 실패했습니다.';
+      setError(message);
+      alert(message);
+      console.error('Failed to load case detail:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleBackToList = () => {
@@ -255,6 +228,18 @@ const CaseListPage: React.FC = () => {
 
   return (
     <div className='h-full flex flex-col'>
+      {error && (
+        <div className='bg-red-50 border border-red-200 text-red-700 px-4 py-2 text-sm rounded mb-2'>
+          {error}
+        </div>
+      )}
+      {loading && (
+        <div className='absolute inset-0 bg-black/10 flex items-center justify-center z-50'>
+          <div className='bg-white rounded-lg px-4 py-2 shadow-lg'>
+            <div className='text-sm'>로딩 중...</div>
+          </div>
+        </div>
+      )}
       <div className='flex-1 min-h-0'>
         {viewMode === 'list' && (
           <CaseListView
@@ -273,6 +258,7 @@ const CaseListPage: React.FC = () => {
             onChangeCustomerStatement={setNewCustomerStatement}
             onSave={handleSaveCase}
             onBack={handleBackToList}
+            loading={loading}
           />
         )}
         {viewMode === 'detail' && selectedCase && (

@@ -9,12 +9,20 @@ import path from 'path';
 
 const createWindow = () => {
   // Create the browser window.
+  const isDev = !!MAIN_WINDOW_VITE_DEV_SERVER_URL;
+  
   const mainWindow = new BrowserWindow({
     width: 1300,
     height: 900,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      // CORS 문제 해결을 위한 설정
+      // 개발 환경에서만 webSecurity 비활성화 (프로덕션에서는 백엔드 CORS 설정 권장)
+      webSecurity: !isDev, // 개발 환경에서는 false, 프로덕션에서는 true
+      allowRunningInsecureContent: isDev,
+      nodeIntegration: false,
+      contextIsolation: true,
     },
   });
 

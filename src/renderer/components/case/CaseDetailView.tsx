@@ -22,6 +22,37 @@ export const CaseDetailView: React.FC<CaseDetailViewProps> = ({
   onOpenAddStatement,
   onOpenAddResolution,
 }) => {
+  // 날짜 포맷팅 함수: 2025/12/19 11:12:12 AM 형식
+  const formatDateTime = (dateString: string): string => {
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    return `${year}/${month}/${day} ${String(displayHours).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
+  };
+
+  // createdAt 기준 내림차순 정렬
+  const sortedStatements = (selectedCase?.statements ?? [])
+  .slice()
+  .sort((a, b) => {
+    const dateA = new Date(a.createdAt).getTime();
+    const dateB = new Date(b.createdAt).getTime();
+    return dateB - dateA;
+  });
+
+const sortedResolutions = (selectedCase?.resolutions ?? [])
+  .slice()
+  .sort((a, b) => {
+    const dateA = new Date(a.createdAt).getTime();
+    const dateB = new Date(b.createdAt).getTime();
+    return dateB - dateA;
+  });
+
   return (
     <div className='flex flex-col h-full gap-4'>
       <div className='flex items-center justify-between'>
@@ -114,23 +145,26 @@ export const CaseDetailView: React.FC<CaseDetailViewProps> = ({
             </button>
           </CardHeader>
           <CardContent className='flex-1 min-h-0 overflow-auto space-y-2 pt-0 text-sm'>
-            {selectedCase.statements.length === 0 && (
+            {sortedStatements.length === 0 && (
               <div className='text-gray-400'>No case statements.</div>
             )}
-            {selectedCase.statements.map((st) => (
+            {sortedStatements.map((st) => (
               <div
                 key={st.id}
-                className='border border-gray-100 rounded-md p-2 bg-gray-50'
+                className='border border-gray-100 rounded-md p-2 bg-gray-50 relative'
               >
-                <div className='font-medium text-gray-700 mb-1'>Symptom</div>
+                <div className='absolute top-2 right-2 text-xs text-gray-500'>
+                  {formatDateTime(st.createdAt)}
+                </div>
+                <div className='font-bold text-gray-700 mb-1'>Symptom</div>
                 <div className='mb-2 whitespace-pre-wrap text-gray-800'>
                   {st.symptom}
                 </div>
-                <div className='font-medium text-gray-700 mb-1'>Needs</div>
+                <div className='font-bold text-gray-700 mb-1'>Needs</div>
                 <div className='mb-2 whitespace-pre-wrap text-gray-800'>
                   {st.needs || '-'}
                 </div>
-                <div className='font-medium text-gray-700 mb-1'>
+                <div className='font-bold text-gray-700 mb-1'>
                   Environments (json)
                 </div>
                 <pre className='text-xs bg-white border border-gray-200 rounded p-2 overflow-auto max-h-32'>
@@ -158,15 +192,18 @@ export const CaseDetailView: React.FC<CaseDetailViewProps> = ({
             </button>
           </CardHeader>
           <CardContent className='flex-1 min-h-0 overflow-auto space-y-2 pt-0 text-sm'>
-            {selectedCase.resolutions.length === 0 && (
+            {sortedResolutions.length === 0 && (
               <div className='text-gray-400'>No resolutions.</div>
             )}
-            {selectedCase.resolutions.map((rs) => (
+            {sortedResolutions.map((rs) => (
               <div
                 key={rs.id}
-                className='border border-gray-100 rounded-md p-2 bg-gray-50'
+                className='border border-gray-100 rounded-md p-2 bg-gray-50 relative'
               >
-                <div className='font-medium text-gray-700 mb-1'>
+                <div className='absolute top-2 right-2 text-xs text-gray-500'>
+                  {formatDateTime(rs.createdAt)}
+                </div>
+                <div className='font-bold text-gray-700 mb-1'>
                   Content (json)
                 </div>
                 <pre className='text-xs bg-white border border-gray-200 rounded p-2 overflow-auto max-h-32'>

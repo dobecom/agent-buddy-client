@@ -8,6 +8,7 @@ interface CaseCreateViewProps {
   onChangeCustomerStatement: (v: string) => void;
   onSave: () => void;
   onBack: () => void;
+  loading?: boolean;
 }
 
 export const CaseCreateView: React.FC<CaseCreateViewProps> = ({
@@ -17,6 +18,7 @@ export const CaseCreateView: React.FC<CaseCreateViewProps> = ({
   onChangeCustomerStatement,
   onSave,
   onBack,
+  loading = false,
 }) => {
   return (
     <Card className='h-full max-w-3xl flex flex-col'>
@@ -40,6 +42,7 @@ export const CaseCreateView: React.FC<CaseCreateViewProps> = ({
             placeholder='숫자만 입력 (예: 202512180000001)'
             value={caseNumber}
             onChange={(e) => onChangeCaseNumber(e.target.value)}
+            disabled={loading}
           />
           <p className='mt-1 text-xs text-gray-500'>
             약 15자리 숫자를 권장합니다.
@@ -55,6 +58,7 @@ export const CaseCreateView: React.FC<CaseCreateViewProps> = ({
             placeholder='고객 문의 내용을 500~2000자 정도로 상세히 입력해주세요.'
             value={customerStatement}
             onChange={(e) => onChangeCustomerStatement(e.target.value)}
+            disabled={loading}
           />
           <p className='mt-1 text-xs text-gray-500'>
             현재 길이: {customerStatement.length}자
@@ -65,6 +69,7 @@ export const CaseCreateView: React.FC<CaseCreateViewProps> = ({
         <button
           className='px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm shadow-sm'
           onClick={onSave}
+          disabled={loading}
         >
           Save
         </button>
