@@ -142,3 +142,72 @@ export async function del<T>(url: string, options?: RequestInit): Promise<T> {
   });
 }
 
+/**
+ * 파일 업로드 요청 (multipart/form-data)
+ */
+export async function uploadFile<T>(
+  url: string,
+  formData: FormData,
+  options?: RequestInit,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT * 3); // 파일 업로드는 타임아웃을 3배로
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      method: 'POST',
+      body: formData,
+      signal: controller.signal,
+      // multipart/form-data는 Content-Type을 자동으로 설정하므로 헤더에서 제외
+      headers: {
+        ...(options?.headers || {}),
+      },
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      let errorData: unknown;
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = await response.text();
+      }
+
+      throw new ApiClientError(
+        `Upload Error: ${response.statusText}`,
+        response.status,
+        errorData,
+      );
+    }
+
+    const data = await response.json();
+    return data as T;
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error instanceof ApiClientError) {
+      throw error;
+    }
+
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new ApiClientError('Upload timeout', 408);
+      }
+      if (
+        error.message.includes('Failed to fetch') ||
+        error.message.includes('NetworkError')
+      ) {
+        throw new ApiClientError(
+          '서버에 연결할 수 없습니다. 백엔드 서버가 실행 중인지 확인해주세요.',
+          0,
+        );
+      }
+      throw new ApiClientError(error.message);
+    }
+
+    throw new ApiClientError('Unknown error occurred');
+  }
+}
+

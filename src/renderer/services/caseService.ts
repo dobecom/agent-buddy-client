@@ -4,11 +4,16 @@
 
 import { get, post } from './apiClient';
 import { API_ENDPOINTS } from '../config/api';
+import { AZURE_STORAGE_CONFIG } from '../config/blobStorage';
 import { Cases } from '../domains/Cases';
 import { CaseAttaches } from '../domains/CaseAttaches';
 import { CaseStatements } from '../domains/CaseStatements';
 import { CaseResolutions } from '../domains/CaseResolutions';
 import { SupportCase } from '../domains/SupportCase';
+import {
+  uploadFilesToBlobStorage,
+  UploadedFileInfo,
+} from './blobStorageService';
 
 /**
  * API 응답 타입 정의
@@ -114,10 +119,11 @@ interface CaseViewResponse {
  * API 응답을 Domain Entity로 변환하는 헬퍼 함수들
  */
 function mapToCasesEntity(
-  data: CaseListItem | CaseDetailItem
+  data: CaseListItem | CaseDetailItem,
 ): Cases {
   const entity = new Cases();
-  entity.id = data.id;
+  // id 필드가 있는 경우 사용, 없으면 number를 기반으로 임시 id 생성
+  entity.id = data.id || `temp-${data.number}`;
   entity.number = data.number;
   entity.title = data.title;
   entity.productFamily = data.productFamily;
@@ -237,3 +243,149 @@ export async function getCaseView(caseId: string): Promise<SupportCase> {
   };
 }
 
+/**
+ * 첨부파일 리스트 조회 응답 타입
+ */
+interface CaseAttachItem {
+  id: string;
+  type: string; // WEBAPPS / BROWSER
+  url: string;
+  path: string;
+  name: string;
+  original: string;
+  status: string; // VERIFY / WAIT / DELETE
+}
+
+interface CaseAttachesListResponse {
+  caseAttachesList: CaseAttachItem[];
+  caseAttachesCnt: number;
+}
+
+/**
+ * 파일 업로드 응답 타입
+ */
+interface FileUploadResponse {
+  id: string;
+  url: string;
+  name: string;
+}
+
+/**
+ * 첨부파일을 Domain Entity로 변환
+ */
+function mapToCaseAttachesEntity(data: CaseAttachItem): CaseAttaches {
+  const entity = new CaseAttaches();
+  entity.id = data.id;
+  // URL이 base URL만 있는 경우, 전체 경로를 구성
+  // Azure Blob Storage URL 형식: https://{account}.blob.core.windows.net/{container}/{path}/{name}
+  const baseUrl = data.url.trim();
+  const containerName = AZURE_STORAGE_CONFIG.CONTAINER_NAME;
+  const fullPath = `${data.path}/${data.name}`;
+  // base URL만 있는 경우 전체 URL 구성, 이미 전체 URL인 경우 그대로 사용
+  entity.url = baseUrl.includes(containerName)
+    ? baseUrl
+    : `${baseUrl}/${containerName}/${fullPath}`;
+  entity.path = data.path;
+  entity.name = data.name;
+  entity.original = data.original;
+  entity.memo = null; // API 응답에 없음
+  entity.status = data.status;
+  entity.createdAt = new Date().toISOString(); // API 응답에 없으므로 현재 시간
+  entity.createdBy = null;
+  entity.updatedAt = new Date().toISOString();
+  entity.updatedBy = null;
+  entity.caseId = 0; // API 응답에 없음
+  entity.type = data.type === 'WEBAPPS' ? 1 : 0; // 타입 변환
+  return entity;
+}
+
+/**
+ * 첨부파일 리스트 조회
+ */
+export async function getCaseAttachesList(
+  caseId: string,
+): Promise<CaseAttaches[]> {
+  const response = await get<CaseAttachesListResponse>(
+    API_ENDPOINTS.CASES.ATTACHES_LIST(caseId),
+  );
+
+  return response.caseAttachesList.map(mapToCaseAttachesEntity);
+}
+
+/**
+ * 첨부파일 등록 요청 타입
+ */
+interface CaseAttachRegisterItem {
+  caseId: string;
+  url: string;
+  path: string;
+  name: string;
+  original: string;
+  memo?: string | null;
+}
+
+interface CaseAttachRegisterRequest {
+  caseAttachesList: CaseAttachRegisterItem[];
+}
+
+interface CaseAttachRegisterResponse {
+  caseAttachesList: Array<{ id: string }>;
+}
+
+/**
+ * 파일 업로드 및 DB 저장
+ * @param caseId - 케이스 ID
+ * @param files - 업로드할 파일 리스트
+ * @param memo - 메모 (선택사항)
+ * @returns 업로드된 파일 정보 리스트 (DB 저장 후 id 포함)
+ */
+export async function uploadCaseFiles(
+  caseId: string,
+  files: File[],
+  memo?: string | null,
+): Promise<CaseAttaches[]> {
+  // 1. Azure Blob Storage에 파일 업로드
+  const uploadedFiles: UploadedFileInfo[] = await uploadFilesToBlobStorage(
+    files,
+    {
+      pathPrefix: caseId,
+      // 날짜 기반 서브 경로는 blobStorageService에서 자동 생성
+    },
+  );
+
+  // 2. 백엔드 서버에 DB 저장 요청
+  const registerRequest: CaseAttachRegisterRequest = {
+    caseAttachesList: uploadedFiles.map((file) => ({
+      caseId,
+      url: file.url,
+      path: file.path,
+      name: file.name,
+      original: file.original,
+      memo: memo || null,
+    })),
+  };
+
+  const registerResponse = await post<CaseAttachRegisterResponse>(
+    API_ENDPOINTS.CASES.ATTACHES_REGISTER,
+    registerRequest,
+  );
+
+  // 3. 응답을 CaseAttaches로 변환
+  return uploadedFiles.map((file, index) => {
+    const entity = new CaseAttaches();
+    entity.id = registerResponse.caseAttachesList[index]?.id || '';
+    entity.url = file.url;
+    entity.path = file.path;
+    entity.name = file.name;
+    entity.original = file.original;
+    entity.memo = memo || null;
+    entity.status = 'WAIT'; // 검증 대기 상태
+    entity.createdAt = new Date().toISOString();
+    entity.createdBy = null;
+    entity.updatedAt = new Date().toISOString();
+    entity.updatedBy = null;
+    entity.caseId = 0; // API 응답에 없음
+    entity.type = 0; // 기본값
+    return entity;
+  });
+}

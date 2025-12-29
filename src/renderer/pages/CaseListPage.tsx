@@ -112,6 +112,8 @@ const request: RegisterCaseRequest = {
           : '케이스 생성에 실패했습니다.';
       setError(message);
       console.error('Failed to create case:', err);
+      // 에러 발생 시에도 입력 필드를 수정할 수 있도록 loading 상태 해제
+      // alert는 사용자가 확인할 때까지 기다리므로, 여기서는 console.error만 사용
     } finally {
       setLoading(false);
     }
@@ -122,6 +124,7 @@ const request: RegisterCaseRequest = {
     setError(null);
     try {
       // 상세 정보 조회 (statements, resolutions 포함)
+      // id가 이미 포함되어 있으므로 직접 사용
       const detail = await getCaseView(item.base.id);
       setSelectedCase(detail);
       setViewMode('detail');

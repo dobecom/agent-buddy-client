@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Card,
   CardContent,
@@ -6,6 +6,13 @@ import {
   CardTitle,
 } from '../ui/card';
 import { SupportCase } from '../../domains/SupportCase';
+import { CaseAttaches } from '../../domains/CaseAttaches';
+import {
+  getCaseAttachesList,
+  uploadCaseFiles,
+} from '../../services/caseService';
+import { ApiClientError } from '../../services/apiClient';
+import { FILE_UPLOAD_CONFIG } from '../../config/api';
 
 interface CaseDetailViewProps {
   selectedCase: SupportCase;
@@ -22,6 +29,95 @@ export const CaseDetailView: React.FC<CaseDetailViewProps> = ({
   onOpenAddStatement,
   onOpenAddResolution,
 }) => {
+  const [attachments, setAttachments] = useState<CaseAttaches[]>([]);
+  const [loadingAttachments, setLoadingAttachments] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 첨부파일 리스트 조회 함수
+  const loadAttachments = React.useCallback(async () => {
+    setLoadingAttachments(true);
+    try {
+      const attaches = await getCaseAttachesList(selectedCase.base.id);
+      setAttachments(attaches);
+    } catch (err) {
+      console.error('Failed to load attachments:', err);
+      setAttachments([]);
+    } finally {
+      setLoadingAttachments(false);
+    }
+  }, [selectedCase.base.id]);
+
+  // 초기 로드 및 caseId 변경 시 조회
+  useEffect(() => {
+    loadAttachments();
+  }, [loadAttachments]);
+
+  // 파일 선택 핸들러
+  const handleFileSelect = () => {
+    fileInputRef.current?.click();
+  };
+
+  // 파일 업로드 핸들러
+  const handleFileUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    // 파일 개수 검증
+    if (files.length > FILE_UPLOAD_CONFIG.MAX_FILES) {
+      alert(
+        `최대 ${FILE_UPLOAD_CONFIG.MAX_FILES}개까지 업로드 가능합니다.`,
+      );
+      return;
+    }
+
+    // 파일 크기 검증
+    const oversizedFiles: File[] = [];
+    Array.from(files).forEach((file) => {
+      if (file.size > FILE_UPLOAD_CONFIG.MAX_FILE_SIZE) {
+        oversizedFiles.push(file);
+      }
+    });
+
+    if (oversizedFiles.length > 0) {
+      alert(
+        `다음 파일들의 크기가 너무 큽니다 (최대 ${FILE_UPLOAD_CONFIG.MAX_FILE_SIZE / 1024 / 1024}MB):\n${oversizedFiles.map((f) => f.name).join('\n')}`,
+      );
+      return;
+    }
+
+    setUploading(true);
+    setUploadError(null);
+
+    try {
+      // 파일 업로드 및 DB 저장
+      await uploadCaseFiles(selectedCase.base.id, Array.from(files));
+
+      // 파일 입력 초기화
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+
+      // 업로드 완료 후 Attaches 섹션만 새로고침
+      await loadAttachments();
+    } catch (err) {
+      const message =
+        err instanceof ApiClientError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : '파일 업로드에 실패했습니다.';
+      setUploadError(message);
+      alert(message);
+      console.error('Failed to upload files:', err);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   // 날짜 포맷팅 함수: 2025/12/19 11:12:12 AM 형식
   const formatDateTime = (dateString: string): string => {
     const date = new Date(dateString);
@@ -106,25 +202,61 @@ const sortedResolutions = (selectedCase?.resolutions ?? [])
       </Card>
 
       <Card>
-        <CardHeader className='pb-3'>
+        <CardHeader className='flex flex-row items-center justify-between pb-3'>
           <CardTitle className='text-sm font-semibold'>Attachments</CardTitle>
+          <button
+            className='px-2 py-1 text-xs border border-gray-300 rounded-md hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed'
+            onClick={handleFileSelect}
+            disabled={uploading}
+          >
+            +
+          </button>
         </CardHeader>
         <CardContent className='pt-0'>
-          <div className='border border-gray-200 rounded max-h-32 overflow-auto text-sm'>
-            {selectedCase.attachments.length === 0 && (
+          <input
+            ref={fileInputRef}
+            type='file'
+            multiple
+            className='hidden'
+            onChange={handleFileUpload}
+            accept='*/*'
+          />
+          {uploadError && (
+            <div className='mb-2 text-xs text-red-600'>{uploadError}</div>
+          )}
+          {uploading && (
+            <div className='mb-2 text-xs text-gray-500'>업로드 중...</div>
+          )}
+          {loadingAttachments && (
+            <div className='mb-2 text-xs text-gray-500'>첨부파일 로딩 중...</div>
+          )}
+          <div
+            className={`border border-gray-200 rounded text-sm ${
+              attachments.length > 5 ? 'max-h-40 overflow-auto' : ''
+            }`}
+          >
+            {!loadingAttachments && attachments.length === 0 && (
               <div className='px-3 py-2 text-gray-400'>No attachments.</div>
             )}
-            {selectedCase.attachments.map((att) => (
+            {attachments.map((att) => (
               <div
                 key={att.id}
-                className='px-3 py-2 border-b border-gray-100 last:border-b-0'
+                className='px-3 py-2 border-b border-gray-100 last:border-b-0 hover:bg-gray-50'
               >
                 <a
                   href={att.url}
+                  target='_blank'
+                  rel='noopener noreferrer'
                   className='text-blue-600 hover:underline break-all'
+                  download
                 >
                   {att.name}
                 </a>
+                {att.original !== att.name && (
+                  <div className='text-xs text-gray-500 mt-1'>
+                    원본: {att.original}
+                  </div>
+                )}
               </div>
             ))}
           </div>
