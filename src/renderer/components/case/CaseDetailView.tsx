@@ -13,6 +13,7 @@ import {
 } from '../../services/caseService';
 import { ApiClientError } from '../../services/apiClient';
 import { FILE_UPLOAD_CONFIG } from '../../config/api';
+import { DEFAULT_DOWNLOAD_PATH } from '../../config/blobStorage';
 
 interface CaseDetailViewProps {
   selectedCase: SupportCase;
@@ -243,15 +244,33 @@ const sortedResolutions = (selectedCase?.resolutions ?? [])
                 key={att.id}
                 className='px-3 py-2 border-b border-gray-100 last:border-b-0 hover:bg-gray-50'
               >
-                <a
-                  href={att.url}
-                  target='_blank'
-                  rel='noopener noreferrer'
-                  className='text-blue-600 hover:underline break-all'
-                  download
+                <button
+                  onClick={async () => {
+                    try {
+                      // Electron 다이얼로그로 저장 경로 선택
+                      const filePath = await window.electron.showSaveDialog(
+                        DEFAULT_DOWNLOAD_PATH,
+                        att.original || att.name,
+                      );
+                      
+                      if (!filePath) {
+                        return; // 사용자가 취소한 경우
+                      }
+
+                      // 파일 다운로드
+                      await window.electron.downloadFile(att.url, filePath);
+                      alert('파일 다운로드가 완료되었습니다.');
+                    } catch (error) {
+                      console.error('Download error:', error);
+                      alert(
+                        `파일 다운로드에 실패했습니다: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                      );
+                    }
+                  }}
+                  className='text-blue-600 hover:underline break-all text-left cursor-pointer'
                 >
                   {att.name}
-                </a>
+                </button>
                 {att.original !== att.name && (
                   <div className='text-xs text-gray-500 mt-1'>
                     원본: {att.original}

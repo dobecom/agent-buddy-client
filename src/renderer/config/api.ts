@@ -16,9 +16,6 @@ const API_BASE_URL =
   (import.meta.env?.VITE_API_BASE_URL as string | undefined) ||
   'http://localhost:3100';
 
-// Azure Storage 설정 (Electron 표준 권장 방식)
-const AZURE_STORAGE_ACCOUNT_URL = 'https://agbdstorageaccount.blob.core.windows.net';
-
 export const API_ENDPOINTS = {
   // Cases
   CASES: {
@@ -27,6 +24,10 @@ export const API_ENDPOINTS = {
     VIEW: (id: string) => `${API_BASE_URL}/cases/${id}`, // 경로 파라미터
     ATTACHES_LIST: (caseId: string) => `${API_BASE_URL}/cases/${caseId}/attaches/list`, // 첨부파일 리스트 조회
     ATTACHES_REGISTER: `${API_BASE_URL}/cases/attaches/register`, // 첨부파일 DB 저장
+  },
+  // Auth & Storage
+  AUTH: {
+    STORAGE_SAS: `${API_BASE_URL}/auth/storage/SAS`, // Azure Storage SAS URL 요청
   },
 } as const;
 

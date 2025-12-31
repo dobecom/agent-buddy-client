@@ -4,7 +4,7 @@
 
 import { get, post } from './apiClient';
 import { API_ENDPOINTS } from '../config/api';
-import { AZURE_STORAGE_CONFIG } from '../config/blobStorage';
+import { DEFAULT_CONTAINER_NAME } from '../config/blobStorage';
 import { Cases } from '../domains/Cases';
 import { CaseAttaches } from '../domains/CaseAttaches';
 import { CaseStatements } from '../domains/CaseStatements';
@@ -244,6 +244,53 @@ export async function getCaseView(caseId: string): Promise<SupportCase> {
 }
 
 /**
+ * Azure Storage SAS URL 요청/응답 타입
+ */
+interface StorageSASRequest {
+  operation: 'upload' | 'download';
+  container: string;
+}
+
+interface StorageSASResponse {
+  sasUrl: string;
+  expiresOn: string;
+  method: string;
+  headers: {
+    'x-ms-blob-type': string;
+    'Content-Type': string;
+  };
+}
+
+/**
+ * Azure Storage SAS URL 요청
+ * @param operation - 'upload' 또는 'download'
+ * @param container - Container 이름 (기본값: 'case-attaches')
+ * @param accessToken - 인증 토큰 (Bearer token)
+ * @returns SAS URL 및 관련 정보
+ */
+export async function getStorageSASUrl(
+  operation: 'upload' | 'download',
+  container: string = DEFAULT_CONTAINER_NAME,
+  accessToken?: string,
+): Promise<StorageSASResponse> {
+  const headers: Record<string, string> = {};
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+
+  const response = await post<StorageSASResponse>(
+    API_ENDPOINTS.AUTH.STORAGE_SAS,
+    {
+      operation,
+      container,
+    } as StorageSASRequest,
+    { headers },
+  );
+
+  return response;
+}
+
+/**
  * 첨부파일 리스트 조회 응답 타입
  */
 interface CaseAttachItem {
@@ -276,15 +323,9 @@ interface FileUploadResponse {
 function mapToCaseAttachesEntity(data: CaseAttachItem): CaseAttaches {
   const entity = new CaseAttaches();
   entity.id = data.id;
-  // URL이 base URL만 있는 경우, 전체 경로를 구성
-  // Azure Blob Storage URL 형식: https://{account}.blob.core.windows.net/{container}/{path}/{name}
-  const baseUrl = data.url.trim();
-  const containerName = AZURE_STORAGE_CONFIG.CONTAINER_NAME;
-  const fullPath = `${data.path}/${data.name}`;
-  // base URL만 있는 경우 전체 URL 구성, 이미 전체 URL인 경우 그대로 사용
-  entity.url = baseUrl.includes(containerName)
-    ? baseUrl
-    : `${baseUrl}/${containerName}/${fullPath}`;
+  // URL은 백엔드에서 받은 전체 URL을 그대로 사용
+  // 백엔드에서 이미 완전한 다운로드 URL을 제공하므로 그대로 사용
+  entity.url = data.url.trim();
   entity.path = data.path;
   entity.name = data.name;
   entity.original = data.original;
@@ -337,19 +378,29 @@ interface CaseAttachRegisterResponse {
  * @param caseId - 케이스 ID
  * @param files - 업로드할 파일 리스트
  * @param memo - 메모 (선택사항)
+ * @param accessToken - 인증 토큰 (선택사항)
  * @returns 업로드된 파일 정보 리스트 (DB 저장 후 id 포함)
  */
 export async function uploadCaseFiles(
   caseId: string,
   files: File[],
   memo?: string | null,
+  accessToken?: string,
 ): Promise<CaseAttaches[]> {
-  // 1. Azure Blob Storage에 파일 업로드
+  // 1. 백엔드에서 SAS URL 요청
+  const sasInfo = await getStorageSASUrl('upload', DEFAULT_CONTAINER_NAME, accessToken);
+
+  // 2. Azure Blob Storage에 파일 업로드 (백엔드에서 받은 SAS URL 사용)
   const uploadedFiles: UploadedFileInfo[] = await uploadFilesToBlobStorage(
     files,
     {
       pathPrefix: caseId,
       // 날짜 기반 서브 경로는 blobStorageService에서 자동 생성
+      sasInfo: {
+        sasUrl: sasInfo.sasUrl,
+        method: sasInfo.method,
+        headers: sasInfo.headers,
+      },
     },
   );
 
